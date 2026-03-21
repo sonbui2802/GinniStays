@@ -1,6 +1,12 @@
-# GinniStays
-Web platform connecting landlords and tenants for room rentals, featuring smart search, contract management, and PDF generation.
-📦 Project Structure
+# 📦 GinniStays
+
+A full-stack web application for managing rental rooms and mini apartments in Vietnam.
+
+---
+
+## 📦 Project Structure
+
+```bash
 GinniStays
 │
 ├── backend
@@ -17,6 +23,6 @@ GinniStays
 ├── frontend              # (Optional - UI layer)
 │
 ├── database
-│   └── schema.sql       # Database schema (tables & relations)
+│   └── schema.sql        # Database schema (tables & relations)
 │
 └── README.md
