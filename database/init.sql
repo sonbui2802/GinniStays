@@ -42,7 +42,7 @@ CREATE TABLE properties (
   latitude       DECIMAL(10, 8) NULL,
   longitude      DECIMAL(11, 8) NULL,
   created_at     TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  
+  status         ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
   PRIMARY KEY (id),
   CONSTRAINT fk_properties_landlord FOREIGN KEY (landlord_id) REFERENCES users (id) ON DELETE CASCADE,
   
