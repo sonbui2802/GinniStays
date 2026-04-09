@@ -4,9 +4,9 @@ const cors = require('cors');
 // Import our custom response utility
 const { successResponse } = require('./utils/response');
 // Import our error handling middlewares
-const { notFound, errorHandler } = require('./middlewares/errorMiddleware');
+const { notFound, errorHandler } = require('./middlewares/error.middleware');
 // Import our newly created auth routes
-const authRoutes = require('./routes/authRoutes');
+const authRoutes = require('./routes/auth.routes');
 
 const app = express();
 

@@ -37,13 +37,13 @@ const registerUser = async (fullName, email, password) => {
 const loginUser = async (email, password) => {
     // 1. Find user by email
     const [users] = await db.execute('SELECT * FROM users WHERE email = ?', [email]);
-    const user = users;
+    const user = users[0];
 
     // 2. Check if user exists and password matches
     if (!user) {
         throw new AppError('Invalid email or password', 401);
     }
-
+  
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
         throw new AppError('Invalid email or password', 401);
