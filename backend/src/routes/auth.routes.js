@@ -9,7 +9,7 @@ const { protect } = require('../middlewares/auth.middleware');
 const router = express.Router();
 
 // --- PUBLIC ROUTES (Không cần đăng nhập) ---
-router.post('/register', register);
+router.post('/register', register); 
 router.post('/login', login);
 
 // --- PROTECTED ROUTES (Bắt buộc phải có token JWT) ---

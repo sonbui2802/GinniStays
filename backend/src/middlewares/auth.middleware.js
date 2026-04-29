@@ -9,7 +9,7 @@ const protect = (req, res, next) => {
 
     // 1. Check if auth header exists and starts with 'Bearer'
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-        token = req.headers.authorization.split(' '); // Extract token
+        token = req.headers.authorization.split(' ')[1]; // Extract token
     }
 
     // 2. If no token is found
