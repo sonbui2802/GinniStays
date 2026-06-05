@@ -1,195 +1,142 @@
-# 📦 GinniStays
+# GinniStays 🏠
 
-A full-stack web application for managing rental rooms and mini apartments in Vietnam.
-
----
-
-## 🏗️ System Architecture Overview
-
-GinniStays follows a **client-server architecture**:
-
-* **Frontend (React)** handles UI, user interaction, and sends HTTP requests.
-* **Backend (Node.js + Express)** processes requests, handles business logic, and interacts with the database.
-* **Database (MySQL)** stores users, properties, bookings, etc.
-
-📡 Flow:
-
-```
-User → Frontend (React) → API (Axios) → Backend (Express) → MySQL Database
-                                             ↓
-                                      Response (JSON)
-                                             ↓
-                                Frontend renders UI
-```
+A room rental platform for Vietnam — connecting landlords and tenants with smart search, contract management, and PDF export.
 
 ---
 
-## 📦 Project Structure
+## Why this exists
 
-```bash
+The rental market in Vietnam still runs mostly on word-of-mouth and scattered social media posts. GinniStays puts everything in one place: landlords list their rooms, tenants search by map, sign contracts, and manage everything on a single platform.
+
+---
+
+## Tech stack
+
+| Layer | Tech |
+|---|---|
+| Frontend | React + Vite, Zustand, Axios |
+| Backend | Node.js + Express |
+| Database | MySQL |
+| Auth | JWT |
+| Docs | PDF generation |
+
+---
+
+## Project structure
+
+```
 GinniStays
 ├── frontend
 │   └── src
 │       ├── assets/         # Static images, logos
-│       ├── components/     
-│       │   ├── common/     # Reusable UI (Button, Input, Modal...)
-│       │   ├── layout/     # Navbar, Footer, Sidebar...
-│       │   └── property/   # PropertyCard, MapView, CategoryBar...
-│       ├── hooks/          # Custom hooks (useAuth, useGeolocation)
-│       ├── layouts/        # Page layouts (MainLayout, DashboardLayout)
-│       ├── pages/          # Main pages (Home, PropertyDetail, HostDashboard)
-│       ├── services/       # API calls (Axios config & endpoints)
-│       ├── store/          # Zustand state management (authStore)
-│       ├── utils/          # Helpers (format currency, date...)
+│       ├── components/
+│       │   ├── common/     # Button, Input, Modal...
+│       │   ├── layout/     # Navbar, Footer, Sidebar
+│       │   └── property/   # PropertyCard, MapView, CategoryBar
+│       ├── hooks/          # useAuth, useGeolocation
+│       ├── layouts/        # MainLayout, DashboardLayout
+│       ├── pages/          # Home, PropertyDetail, HostDashboard
+│       ├── services/       # Axios config + API endpoints
+│       ├── store/          # Zustand (authStore)
+│       ├── utils/          # Currency, date formatters
 │       └── App.jsx
-
+│
 ├── backend
 │   └── src
-│       ├── config/         # Database config (MySQL connection)
+│       ├── config/         # MySQL connection
 │       ├── controllers/    # Handle incoming HTTP requests
-│       ├── middlewares/    # Auth (JWT), error handling
-│       ├── routes/         # API endpoints (REST)
-│       ├── services/       # Business logic & DB queries
-│       ├── utils/          # Helpers (JWT, response format)
-│       ├── app.js          # Express app setup
-│       └── server.js       # Entry point
-
+│       ├── middlewares/    # JWT auth, error handling
+│       ├── routes/         # REST API endpoints
+│       ├── services/       # Business logic + DB queries
+│       ├── utils/          # JWT helpers, response format
+│       ├── app.js
+│       └── server.js
+│
 ├── database
-│   └── schema.sql          # Database schema
-
+│   └── schema.sql
 └── README.md
 ```
 
 ---
 
-## 🔗 How Frontend Connects to Backend
+## Getting started
 
-### 1. API Layer (Frontend)
+> Requirements: Node.js ≥ 18, MySQL running locally.
 
-All API calls are centralized in:
+### 1. Clone the repo
+
+```bash
+git clone https://github.com/sonbui2802/GinniStays.git
+cd GinniStays
+```
+
+### 2. Set up the database
+
+```bash
+mysql -u root -p < database/schema.sql
+```
+
+### 3. Run the backend
+
+```bash
+cd backend
+npm install
+```
+
+Create a `.env` file inside `backend/`:
+
+```env
+PORT=5000
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=your_password
+DB_NAME=ginnistays
+JWT_SECRET=your_secret_key
+```
+
+```bash
+npm run dev
+# → http://localhost:5000
+```
+
+### 4. Run the frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+# → http://localhost:5173
+```
+
+---
+
+## How it works
 
 ```
-frontend/src/services/api.js
+User → React (Axios) → Express API → MySQL
+                           ↓
+                      JSON response
+                           ↓
+                     React renders UI
 ```
 
-Example:
+All frontend API calls go through a single instance:
 
 ```js
-import axios from "axios";
+// frontend/src/services/api.js
+const api = axios.create({ baseURL: "http://localhost:5000/api" });
 
-const api = axios.create({
-  baseURL: "http://localhost:5000/api",
-});
-
-export default api;
-```
-
-👉 Other services use this instance:
-
-```js
 api.get("/properties");
 api.post("/auth/login", data);
 ```
 
 ---
 
-### 2. Backend Routes
+## Auth (JWT)
 
-Backend exposes REST APIs via:
-
-```
-backend/src/routes/
-```
-
-Example:
-
-```js
-router.get("/properties", propertyController.getAll);
-router.post("/auth/login", authController.login);
-```
-
----
-
-### 3. Request Flow Example
-
-📌 User loads homepage:
-
-1. Frontend calls:
-
-```js
-api.get("/properties");
-```
-
-2. Backend route receives:
-
-```
-GET /api/properties
-```
-
-3. Controller handles:
-
-```js
-propertyController.getAll
-```
-
-4. Service queries database:
-
-```sql
-SELECT * FROM properties;
-```
-
-5. Backend returns JSON:
-
-```json
-{
-  "data": [ ...properties ]
-}
-```
-
-6. Frontend renders UI 🎉
-
----
-
-## ⚙️ Running the Project
-
-### 1. Backend
-
-```bash
-cd backend
-npm install
-npm run dev
-```
-
-Server runs at:
-
-```
-http://localhost:5000
-```
-
----
-
-### 2. Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-App runs at:
-
-```
-http://localhost:5173
-```
-
----
-
-## 🔐 Authentication Flow (JWT)
-
-1. User logs in → frontend sends credentials
-2. Backend verifies → returns JWT
-3. Frontend stores token (Zustand / localStorage)
-4. Future requests include:
+1. User logs in → backend returns a token
+2. Frontend stores it in Zustand + localStorage
+3. Every subsequent request attaches:
 
 ```
 Authorization: Bearer <token>
@@ -197,29 +144,23 @@ Authorization: Bearer <token>
 
 ---
 
-## 🚀 Key Features
+## Features
 
-* 🏠 Property listing & filtering
-* 📍 Map-based location view
-* 👤 User authentication (JWT)
-* 🧑‍💼 Host dashboard for property management
-* 💾 Persistent storage with MySQL
+- 🔍 Property search and filtering
+- 🗺️ Map-based browsing
+- 👤 User auth (JWT)
+- 🧑‍💼 Host dashboard for managing listings
+- 📄 Contract management + PDF export
 
----
+## Roadmap
 
-## 💡 Future Improvements
-
-* Payment integration
-* Real-time chat (WebSocket)
-* Recommendation system (AI-based)
-* Advanced search & filtering
+- [ ] Payment integration
+- [ ] Real-time chat (WebSocket)
+- [ ] AI-based room recommendations
+- [ ] Advanced search filters
 
 ---
 
-## 🧠 Notes
+## Contributors
 
-* Frontend and backend are **decoupled**, communicate via REST APIs
-* Easily scalable to microservices or GraphQL in the future
-* Clean separation: UI ↔ Business Logic ↔ Data Layer
-
----
+[@sonbui2802](https://github.com/sonbui2802) — PRs welcome 🙌
