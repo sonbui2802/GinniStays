@@ -11,7 +11,7 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
-
+app.use('/uploads', express.static('public/uploads')); // Cho phép truy cập file tĩnh (ảnh avatar)
 app.get('/api/health', (req, res) => {
   successResponse(res, "Server is running", null, 200);
 });

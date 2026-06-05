@@ -16,6 +16,8 @@ router.get('/tenant', authorizeRoles('tenant'), getTenantRequests);
 
 // --- CỦA CHỦ TRỌ (LANDLORD) ---
 router.get('/landlord', authorizeRoles('landlord', 'admin'), getLandlordRequests);
-router.put('/:id/status', authorizeRoles('landlord', 'admin'), updateStatus);
 
-module.exports = router;    
+//
+router.patch('/:id/status', authorizeRoles('landlord', 'admin'), updateStatus);
+
+module.exports = router;

@@ -2,32 +2,33 @@ const express = require('express');
 const { 
     createProperty, getAllProperties, getMyProperties, 
     getPropertyById, updateProperty, deleteProperty,
-    uploadPropertyImages // <-- 1. Thêm import hàm này
+    uploadPropertyImages, updateOccupants,
+    searchProperties, getLocations // ✅ import thêm
 } = require('../controllers/property.controller');
 
 const { protect, authorizeRoles } = require('../middlewares/auth.middleware');
-const upload = require('../config/cloudinary'); // <-- 2. Thêm import cấu hình Multer
+const upload = require('../config/cloudinary');
 
 const router = express.Router();
 
-// 1. PUBLIC ROUTES (Ai cũng xem được danh sách và chi tiết)
+// 1. PUBLIC STATIC ROUTES — phải đặt TRƯỚC /:id
 router.get('/', getAllProperties);
-router.get('/:id', getPropertyById); 
+router.get('/search', searchProperties); 
+router.get('/locations', getLocations); // ✅ Thêm route Lấy vị trí động ở đây
 
-// 2. PROTECTED ROUTES (Phải đăng nhập)
+// 2. PROTECTED STATIC ROUTES — cũng phải đặt TRƯỚC /:id
+router.get('/landlord/my-properties', protect, authorizeRoles('landlord', 'admin'), getMyProperties);
+
+// 3. DYNAMIC ROUTE — đặt SAU tất cả static
+router.get('/:id', getPropertyById);
+
+// 4. PROTECTED ROUTES
 router.use(protect);
 
-// 3. LANDLORD ROUTES (Phải đăng nhập + Có quyền landlord)
-// Route lấy danh sách nhà của RIÊNG chủ trọ đang đăng nhập
-router.get('/landlord/my-properties', authorizeRoles('landlord', 'admin'), getMyProperties);
-
-// CRUD
 router.post('/', authorizeRoles('landlord', 'admin'), createProperty);
 router.put('/:id', authorizeRoles('landlord', 'admin'), updateProperty);
 router.delete('/:id', authorizeRoles('landlord', 'admin'), deleteProperty);
-
-// Upload ảnh cho Property (Tối đa 5 ảnh)
-// <-- 3. Thêm Route này
-router.post('/:id/images', authorizeRoles('landlord', 'admin'), upload.array('images', 5), uploadPropertyImages); 
+router.patch('/:id/occupants', authorizeRoles('landlord', 'admin'), updateOccupants);
+router.post('/:id/images', authorizeRoles('landlord', 'admin'), upload.array('images', 5), uploadPropertyImages);
 
 module.exports = router;

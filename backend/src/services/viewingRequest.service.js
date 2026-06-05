@@ -1,89 +1,130 @@
 const { pool: db } = require('../config/db');
 const { AppError } = require('../utils/response');
+const propertyService = require('./property.service');
 
 /**
  * [TENANT] Tạo yêu cầu xem phòng
  */
 const createRequest = async (tenantId, requestData) => {
-    const { room_id, preferred_date, message } = requestData;
+    // Thêm các chốt chặn an toàn || null để DB không bao giờ báo lỗi undefined
+    const property_id = requestData.property_id || null;
+    const preferred_date = requestData.preferred_date || null;
+    const message = requestData.message || null;
 
-    if (!room_id || !preferred_date) {
-        throw new AppError('room_id and preferred_date are required', 400);
+    if (!property_id || !preferred_date) {
+        throw new AppError('property_id và preferred_date là bắt buộc', 400);
+    }
+    // ✅ Thêm: chặn ngày quá khứ ở tầng Backend
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const selected = new Date(preferred_date);
+    selected.setHours(0, 0, 0, 0);
+    
+    if (selected < today) {
+        throw new AppError('Không thể đặt lịch vào ngày đã qua', 400);
     }
 
-    // 1. Kiểm tra xem phòng có tồn tại và đang trống không
-    const [room] = await db.execute('SELECT id, status FROM rooms WHERE id = ? LIMIT 1', [room_id]);
-    if (room.length === 0) throw new AppError('Room not found', 404);
-    if (room.status === 'rented') throw new AppError('This room is already rented', 400);
+    const availability = await propertyService.checkAvailability(property_id);
+    
+    if (!availability.exists) throw new AppError('Không tìm thấy phòng này', 404);
+    if (!availability.available) throw new AppError('Phòng này đã có người thuê', 400);
 
-    // 2. Tạo yêu cầu
     const [result] = await db.execute(
-        `INSERT INTO viewing_requests (room_id, tenant_id, preferred_date, message, status) 
+        `INSERT INTO viewing_requests (property_id, tenant_id, preferred_date, message, status) 
          VALUES (?, ?, ?, ?, 'pending')`,
-        [room_id, tenantId, preferred_date, message]
+        [property_id, tenantId, preferred_date, message]
     );
 
-    return { id: result.insertId, room_id, preferred_date, status: 'pending' };
+    return { id: result.insertId, property_id, preferred_date, status: 'pending' };
 };
 
 /**
- * [TENANT] Lấy danh sách các yêu cầu của chính mình (Kèm thông tin phòng)
+ * [TENANT] Lấy danh sách các yêu cầu của chính mình
  */
 const getTenantRequests = async (tenantId) => {
     const [requests] = await db.execute(
         `SELECT vr.id, vr.preferred_date, vr.message, vr.status, vr.created_at,
-                r.room_number, r.price, p.title as property_title, p.address
+                p.id as property_id, p.title as property_title, p.price, p.address
          FROM viewing_requests vr
-         JOIN rooms r ON vr.room_id = r.id
-         JOIN properties p ON r.property_id = p.id
+         JOIN properties p ON vr.property_id = p.id
          WHERE vr.tenant_id = ?
          ORDER BY vr.created_at DESC`,
         [tenantId]
     );
-    return requests;
+    
+    // Gói data lại thành Object lồng nhau cho Frontend dễ xài
+    return requests.map(req => ({
+        id: req.id,
+        property_id: req.property_id,
+        preferred_date: req.preferred_date,
+        message: req.message,
+        status: req.status,
+        created_at: req.created_at,
+        property: {
+            id: req.property_id,
+            title: req.property_title,
+            price: req.price,
+            address: req.address
+        }
+    }));
 };
 
 /**
- * [LANDLORD] Lấy danh sách khách muốn xem các phòng của mình (Kèm thông tin khách)
+ * [LANDLORD] Lấy danh sách khách muốn xem phòng của mình
  */
 const getLandlordRequests = async (landlordId) => {
     const [requests] = await db.execute(
-        `SELECT vr.id as request_id, vr.preferred_date, vr.message, vr.status, vr.created_at,
-                r.room_number, p.title as property_title,
+        // Đổi vr.id as request_id thành vr.id để đồng bộ với FE
+        `SELECT vr.id, vr.preferred_date, vr.message, vr.status, vr.created_at,
+                p.id as property_id, p.title as property_title,
                 u.full_name as tenant_name, u.phone as tenant_phone, u.email as tenant_email
          FROM viewing_requests vr
-         JOIN rooms r ON vr.room_id = r.id
-         JOIN properties p ON r.property_id = p.id
+         JOIN properties p ON vr.property_id = p.id
          JOIN users u ON vr.tenant_id = u.id
          WHERE p.landlord_id = ?
          ORDER BY vr.created_at DESC`,
         [landlordId]
     );
-    return requests;
+    
+    //      Gói data từ dạng phẳng (SQL) sang dạng phân cấp (JSON)
+    return requests.map(req => ({
+        id: req.id,
+        property_id: req.property_id,
+        preferred_date: req.preferred_date,
+        message: req.message,
+        status: req.status,
+        created_at: req.created_at,
+        property: {
+            id: req.property_id,
+            title: req.property_title
+        },
+        tenant: {
+            name: req.tenant_name,
+            phone: req.tenant_phone,
+            email: req.tenant_email
+        }
+    }));
 };
 
 /**
- * [LANDLORD] Duyệt hoặc Từ chối yêu cầu xem phòng
+ * [LANDLORD] Duyệt hoặc Từ chối yêu cầu
  */
 const updateRequestStatus = async (requestId, landlordId, newStatus) => {
     if (!['approved', 'rejected', 'cancelled'].includes(newStatus)) {
-        throw new AppError('Invalid status', 400);
+        throw new AppError('Trạng thái không hợp lệ', 400);
     }
 
-    // 1. BẢO MẬT: Kiểm tra xem cái Request này có đụng vào cái Phòng thuộc Tòa nhà của ông Landlord này không?
     const [existing] = await db.execute(
         `SELECT vr.id FROM viewing_requests vr
-         JOIN rooms r ON vr.room_id = r.id
-         JOIN properties p ON r.property_id = p.id
+         JOIN properties p ON vr.property_id = p.id
          WHERE vr.id = ? AND p.landlord_id = ? LIMIT 1`,
         [requestId, landlordId]
     );
 
     if (existing.length === 0) {
-        throw new AppError('Request not found or you do not have permission to update it', 403);
+        throw new AppError('Không tìm thấy yêu cầu hoặc bạn không có quyền sửa', 403);
     }
 
-    // 2. Cập nhật trạng thái
     await db.execute('UPDATE viewing_requests SET status = ? WHERE id = ?', [newStatus, requestId]);
 
     return { request_id: requestId, new_status: newStatus };

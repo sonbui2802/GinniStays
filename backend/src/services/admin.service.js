@@ -2,63 +2,167 @@ const { pool: db } = require('../config/db');
 const { AppError } = require('../utils/response');
 
 /**
- * [ADMIN] Lấy danh sách tất cả người dùng (để quản lý)
+ * Lấy thống kê tổng quan
  */
-const getAllUsers = async () => {
-    const [users] = await db.execute(
-        'SELECT id, email, full_name, phone, role, is_active, created_at FROM users ORDER BY created_at DESC'
-    );
-    return users;
+const getStats = async () => {
+    const [[userStats]] = await db.execute(`
+        SELECT
+            COUNT(*) as total_users,
+            SUM(role = 'tenant') as total_tenants,
+            SUM(role = 'landlord') as total_landlords
+        FROM users WHERE is_active = 1
+    `);
+
+    const [[propertyStats]] = await db.execute(`
+        SELECT
+            COUNT(*) as total_properties,
+            SUM(status = 'pending') as pending_properties,
+            SUM(status = 'approved') as approved_properties,
+            SUM(status = 'rejected') as rejected_properties,
+            SUM(rental_status = 'available') as available_properties,
+            SUM(rental_status = 'rented') as rented_properties
+        FROM properties
+    `);
+
+    const [[requestStats]] = await db.execute(`
+        SELECT COUNT(*) as total_requests,
+               SUM(status = 'pending') as pending_requests
+        FROM viewing_requests
+    `);
+
+    const [topDistricts] = await db.execute(`
+        SELECT district, city, COUNT(*) as count
+        FROM properties
+        WHERE status = 'approved' AND district IS NOT NULL
+        GROUP BY city, district
+        ORDER BY count DESC
+        LIMIT 5
+    `);
+
+    const [newProperties] = await db.execute(`
+        SELECT COUNT(*) as count
+        FROM properties
+        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+    `);
+
+    return {
+        users: userStats,
+        properties: { ...propertyStats, new_this_week: newProperties[0].count },
+        requests: requestStats,
+        top_districts: topDistricts
+    };
 };
 
 /**
- * [ADMIN] Khóa / Mở khóa tài khoản người dùng (Soft Delete)
+ * Lấy danh sách tất cả phòng (kèm filter)
  */
-const toggleUserStatus = async (userId, isActive) => {
-    // Không cho phép Admin tự khóa chính mình
-    // (Có thể thêm logic check role ở đây)
-    
-    const [result] = await db.execute(
-        'UPDATE users SET is_active = ? WHERE id = ?',
-        [isActive ? 1 : 0, userId]
-    );
+const getAllProperties = async (status) => {
+    let sql = `
+        SELECT p.*, u.full_name as landlord_name, u.email as landlord_email,
+               pi.image_url as thumbnail
+        FROM properties p
+        LEFT JOIN users u ON p.landlord_id = u.id
+        LEFT JOIN property_images pi ON p.id = pi.property_id AND pi.is_thumbnail = 1
+    `;
+    const params = [];
 
-    if (result.affectedRows === 0) throw new AppError('Không tìm thấy người dùng', 404);
-    
-    return { user_id: userId, is_active: isActive };
-};
+    if (status) {
+        sql += ` WHERE p.status = ?`;
+        params.push(status);
+    }
 
-/**
- * [ADMIN] Lấy danh sách các phòng trọ đang chờ duyệt
- */
-const getPendingProperties = async () => {
-    const [properties] = await db.execute(
-        "SELECT * FROM properties WHERE status = 'pending' ORDER BY created_at ASC"
-    );
+    sql += ` ORDER BY p.created_at DESC`;
+    const [properties] = await db.execute(sql, params);
     return properties;
 };
 
 /**
- * [ADMIN] Phê duyệt hoặc Từ chối phòng trọ vi phạm
+ * Duyệt phòng
  */
-const moderateProperty = async (propertyId, newStatus) => {
-    if (!['approved', 'rejected'].includes(newStatus)) {
-        throw new AppError('Trạng thái kiểm duyệt không hợp lệ', 400);
+const approveProperty = async (propertyId) => {
+    const [result] = await db.execute(
+        `UPDATE properties SET status = 'approved' WHERE id = ?`,
+        [propertyId]
+    );
+    if (result.affectedRows === 0) throw new AppError('Không tìm thấy phòng', 404);
+    return { id: propertyId, status: 'approved' };
+};
+
+/**
+ * Từ chối phòng
+ */
+const rejectProperty = async (propertyId, reason) => {
+    const [result] = await db.execute(
+        `UPDATE properties SET status = 'rejected' WHERE id = ?`,
+        [propertyId]
+    );
+    if (result.affectedRows === 0) throw new AppError('Không tìm thấy phòng', 404);
+    return { id: propertyId, status: 'rejected', reason };
+};
+
+/**
+ * Xóa phòng
+ */
+const deleteProperty = async (propertyId) => {
+    const [result] = await db.execute(
+        `DELETE FROM properties WHERE id = ?`,
+        [propertyId]
+    );
+    if (result.affectedRows === 0) throw new AppError('Không tìm thấy phòng', 404);
+    return true;
+};
+
+/**
+ * Lấy danh sách tất cả users
+ */
+const getAllUsers = async (role) => {
+    let sql = `
+        SELECT id, full_name, email, phone, role, is_active, created_at,
+               (SELECT COUNT(*) FROM properties WHERE landlord_id = users.id) as property_count
+        FROM users
+    `;
+    const params = [];
+
+    if (role) {
+        sql += ` WHERE role = ?`;
+        params.push(role);
     }
 
-    const [result] = await db.execute(
-        'UPDATE properties SET status = ? WHERE id = ?',
-        [newStatus, propertyId]
+    sql += ` ORDER BY created_at DESC`;
+    const [users] = await db.execute(sql, params);
+    return users;
+};
+
+/**
+ * Xóa user
+ */
+const deleteUser = async (userId) => {
+    const [existing] = await db.execute(
+        `SELECT role FROM users WHERE id = ?`, [userId]
     );
+    if (existing.length === 0) throw new AppError('Không tìm thấy user', 404);
+    if (existing[0].role === 'admin') throw new AppError('Không thể xóa tài khoản Admin', 403);
 
-    if (result.affectedRows === 0) throw new AppError('Không tìm thấy phòng trọ', 404);
+    await db.execute(`DELETE FROM users WHERE id = ?`, [userId]);
+    return true;
+};
 
-    return { property_id: propertyId, new_status: newStatus };
+/**
+ * Toggle trạng thái active/inactive của user
+ */
+const toggleUserStatus = async (userId) => {
+    const [existing] = await db.execute(
+        `SELECT is_active, role FROM users WHERE id = ?`, [userId]
+    );
+    if (existing.length === 0) throw new AppError('Không tìm thấy user', 404);
+    if (existing[0].role === 'admin') throw new AppError('Không thể khóa tài khoản Admin', 403);
+
+    const newStatus = existing[0].is_active ? 0 : 1;
+    await db.execute(`UPDATE users SET is_active = ? WHERE id = ?`, [newStatus, userId]);
+    return { id: userId, is_active: newStatus };
 };
 
 module.exports = {
-    getAllUsers,
-    toggleUserStatus,
-    getPendingProperties,
-    moderateProperty
+    getStats, getAllProperties, approveProperty, rejectProperty,
+    deleteProperty, getAllUsers, deleteUser, toggleUserStatus
 };

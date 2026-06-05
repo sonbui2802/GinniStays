@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+/* Cấu hình màu sắc tùy chỉnh trong Tailwind v4 */
+@theme {
+  --color-primary: #FF385C;
+}
+
+/* Custom scrollbar cho đẹp */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f1f1; 
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1; 
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8; 
+}
