@@ -17,8 +17,18 @@ const createProperty = async (req, res, next) => {
 
 const getAllProperties = async (req, res, next) => {
     try {
-        const properties = await propertyService.getAllProperties();
-        return successResponse(res, 'Properties fetched successfully', properties, 200);
+        const { page, limit, property_type } = req.query; // ✅ thêm property_type
+
+        const { properties, pagination } = await propertyService.getAllProperties(
+            page, limit, property_type // ✅ truyền xuống service
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: 'Properties fetched successfully',
+            data: properties,
+            pagination
+        });
     } catch (error) { next(error); }
 };
 

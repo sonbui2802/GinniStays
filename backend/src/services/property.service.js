@@ -32,17 +32,76 @@ const createProperty = async (landlordId, propertyData) => {
 };
 
 /**
- * Lấy tất cả Phòng đang trống (Public)
+ * Lấy tất cả Phòng đang trống (Public) - Dùng db.query thay db.execute để tránh lỗi mysql2 prepared statement với LIMIT/OFFSET
  */
-const getAllProperties = async () => {
-    const [properties] = await db.execute(`
-        SELECT p.*, pi.image_url AS thumbnail 
-        FROM properties p 
-        LEFT JOIN property_images pi ON p.id = pi.property_id AND pi.is_thumbnail = 1 
-        WHERE p.status = 'approved' AND p.rental_status = 'available'
-        ORDER BY p.created_at DESC
-    `);
-    return properties;
+const getAllProperties = async (page = 1, limit = 6, propertyType = null) => {
+    const parsedPage = parseInt(page) || 1;
+    const parsedLimit = parseInt(limit) || 6;
+    const offset = (parsedPage - 1) * parsedLimit;
+
+    let total = 0;
+    let properties = [];
+
+    if (propertyType) {
+        // db.query dùng string interpolation an toàn cho LIMIT/OFFSET (integer, không có SQL injection risk)
+        // propertyType vẫn dùng ? để tránh SQL injection
+        const [countRows] = await db.query(
+            `SELECT COUNT(*) as total 
+             FROM properties 
+             WHERE status = 'approved' 
+               AND rental_status = 'available' 
+               AND property_type = ?`,
+            [propertyType]
+        );
+        total = countRows[0].total;
+
+        const [rows] = await db.query(
+            `SELECT p.*, pi.image_url AS thumbnail 
+             FROM properties p 
+             LEFT JOIN property_images pi 
+               ON p.id = pi.property_id AND pi.is_thumbnail = 1 
+             WHERE p.status = 'approved' 
+               AND p.rental_status = 'available' 
+               AND p.property_type = ?
+             ORDER BY p.created_at DESC
+             LIMIT ${parsedLimit} OFFSET ${offset}`,
+            [propertyType]
+        );
+        properties = rows;
+
+    } else {
+        const [countRows] = await db.query(
+            `SELECT COUNT(*) as total 
+             FROM properties 
+             WHERE status = 'approved' 
+               AND rental_status = 'available'`
+        );
+        total = countRows[0].total;
+
+        const [rows] = await db.query(
+            `SELECT p.*, pi.image_url AS thumbnail 
+             FROM properties p 
+             LEFT JOIN property_images pi 
+               ON p.id = pi.property_id AND pi.is_thumbnail = 1 
+             WHERE p.status = 'approved' 
+               AND p.rental_status = 'available'
+             ORDER BY p.created_at DESC
+             LIMIT ${parsedLimit} OFFSET ${offset}`
+        );
+        properties = rows;
+    }
+
+    const totalPages = Math.ceil(total / parsedLimit);
+
+    return {
+        properties,
+        pagination: {
+            currentPage: parsedPage,
+            limit: parsedLimit,
+            totalItems: total,
+            totalPages
+        }
+    };
 };
 
 /**
@@ -68,7 +127,7 @@ const getPropertyById = async (propertyId) => {
     `, [propertyId]);
 
     if (rows.length === 0) throw new AppError('Không tìm thấy phòng này', 404);
-    const property = rows[0]; // ✅ đã fix lỗi cũ luôn
+    const property = rows[0];
 
     const [images] = await db.execute(
         'SELECT image_url, is_thumbnail FROM property_images WHERE property_id = ?', 
@@ -87,13 +146,18 @@ const updateProperty = async (propertyId, landlordId, propertyData) => {
         address, ward, district, city, amenities, rental_status, latitude, longitude
     } = propertyData;
 
-    const [existing] = await db.execute('SELECT id FROM properties WHERE id = ? AND landlord_id = ?', [propertyId, landlordId]);
+    // ✅ FIX: SELECT thêm rental_status để check được bên dưới
+    const [existing] = await db.execute(
+        'SELECT id, rental_status FROM properties WHERE id = ? AND landlord_id = ?',
+        [propertyId, landlordId]
+    );
     if (existing.length === 0) {
         throw new AppError('Không tìm thấy phòng hoặc bạn không có quyền chỉnh sửa', 403);
     }
     if (existing[0].rental_status === 'rented') {
         throw new AppError('Không thể sửa phòng đang có hợp đồng hiệu lực', 403);
     }
+
     const amenitiesJson = amenities ? JSON.stringify(amenities) : null;
 
     await db.execute(
@@ -111,7 +175,10 @@ const updateProperty = async (propertyId, landlordId, propertyData) => {
  * Xóa Phòng (Chỉ chủ sở hữu)
  */
 const deleteProperty = async (propertyId, landlordId) => {
-    const [result] = await db.execute('DELETE FROM properties WHERE id = ? AND landlord_id = ?', [propertyId, landlordId]);
+    const [result] = await db.execute(
+        'DELETE FROM properties WHERE id = ? AND landlord_id = ?',
+        [propertyId, landlordId]
+    );
     if (result.affectedRows === 0) {
         throw new AppError('Không tìm thấy phòng hoặc bạn không có quyền xóa', 403);
     }
@@ -122,7 +189,10 @@ const deleteProperty = async (propertyId, landlordId) => {
  * Upload nhiều ảnh cho Phòng
  */
 const uploadPropertyImages = async (propertyId, landlordId, files) => {
-    const [existing] = await db.execute('SELECT id FROM properties WHERE id = ? AND landlord_id = ?', [propertyId, landlordId]);
+    const [existing] = await db.execute(
+        'SELECT id FROM properties WHERE id = ? AND landlord_id = ?',
+        [propertyId, landlordId]
+    );
     if (existing.length === 0) {
         throw new AppError('Không tìm thấy phòng hoặc bạn không có quyền thêm ảnh!', 403);
     }
@@ -143,9 +213,13 @@ const uploadPropertyImages = async (propertyId, landlordId, files) => {
  * Kiểm tra xem phòng có tồn tại và đang trống không (Dành cho Viewing Request)
  */
 const checkAvailability = async (propertyId) => {
-    const [properties] = await db.execute('SELECT id, rental_status FROM properties WHERE id = ? LIMIT 1', [propertyId]);
+    const [properties] = await db.execute(
+        'SELECT id, rental_status FROM properties WHERE id = ? LIMIT 1',
+        [propertyId]
+    );
     if (properties.length === 0) return { exists: false };
-    if (properties.rental_status === 'rented') return { exists: true, available: false };
+    // ✅ FIX: phải dùng properties[0] thay vì properties trực tiếp
+    if (properties[0].rental_status === 'rented') return { exists: true, available: false };
     return { exists: true, available: true };
 };
 
@@ -162,10 +236,8 @@ const updateOccupants = async (propertyId, landlordId, newOccupantsCount) => {
         throw new AppError('Không tìm thấy phòng hoặc bạn không có quyền!', 403);
     }
 
-    const maxOccupants = rows[0].max_occupants || 99; // ✅ thêm [0]
+    const maxOccupants = rows[0].max_occupants || 99;
     const validCount = Math.max(0, Math.min(newOccupantsCount, maxOccupants));
-    
-    // ✅ Sửa logic: có người ở (>0) là rented, không người (=0) là available
     const rentalStatus = validCount > 0 ? 'rented' : 'available';
 
     await db.execute(
@@ -175,11 +247,15 @@ const updateOccupants = async (propertyId, landlordId, newOccupantsCount) => {
 
     return { id: propertyId, current_occupants: validCount, rental_status: rentalStatus };
 };
+
 /**
  * Tìm kiếm + Lọc phòng (Public)
  */
 const searchProperties = async (filters) => {
-    const { keyword, district, city, minPrice, maxPrice, minArea, maxArea, property_type, bedrooms, amenities } = filters;
+    const { 
+        keyword, district, city, minPrice, maxPrice, 
+        minArea, maxArea, property_type, bedrooms, amenities 
+    } = filters;
 
     let sql = `
         SELECT p.*, pi.image_url AS thumbnail
@@ -190,18 +266,24 @@ const searchProperties = async (filters) => {
     const params = [];
 
     if (keyword) {
+        const cleanKeyword = keyword.trim().replace(/\s+/g, ' ');
         sql += ` AND (p.title LIKE ? OR p.address LIKE ? OR p.description LIKE ?)`;
-        const kw = `%${keyword}%`;
+        const kw = `%${cleanKeyword}%`;
         params.push(kw, kw, kw);
     }
+
     if (district) {
-        sql += ` AND p.district = ?`;
-        params.push(district);
+        const cleanDistrict = district.trim().replace(/\s+/g, ' ');
+        sql += ` AND p.district LIKE ?`;
+        params.push(`%${cleanDistrict}%`);
     }
+
     if (city) {
-        sql += ` AND p.city = ?`;
-        params.push(city);
+        const cleanCity = city.trim().replace(/\s+/g, ' ');
+        sql += ` AND p.city LIKE ?`;
+        params.push(`%${cleanCity}%`);
     }
+
     if (minPrice) {
         sql += ` AND p.price >= ?`;
         params.push(Number(minPrice));
@@ -210,6 +292,7 @@ const searchProperties = async (filters) => {
         sql += ` AND p.price <= ?`;
         params.push(Number(maxPrice));
     }
+
     if (minArea) {
         sql += ` AND p.area >= ?`;
         params.push(Number(minArea));
@@ -218,14 +301,17 @@ const searchProperties = async (filters) => {
         sql += ` AND p.area <= ?`;
         params.push(Number(maxArea));
     }
+
     if (property_type) {
         sql += ` AND p.property_type = ?`;
         params.push(property_type);
     }
+
     if (bedrooms) {
         sql += ` AND p.bedrooms = ?`;
         params.push(Number(bedrooms));
     }
+
     if (amenities && amenities.length > 0) {
         const amenityList = Array.isArray(amenities) ? amenities : [amenities];
         amenityList.forEach(a => {
@@ -235,11 +321,14 @@ const searchProperties = async (filters) => {
     }
 
     sql += ` ORDER BY p.created_at DESC`;
+
     const [properties] = await db.execute(sql, params);
     return properties;
 };
 
-// ✅ TÍNH NĂNG MỚI: Quét Database lấy Thành phố / Quận động
+/**
+ * Quét Database lấy Thành phố / Quận động
+ */
 const getAvailableLocations = async () => {
     const [rows] = await db.execute(`
         SELECT DISTINCT city, district 
@@ -247,7 +336,6 @@ const getAvailableLocations = async () => {
         WHERE status = 'approved' AND city IS NOT NULL AND district IS NOT NULL
     `);
 
-    // Gom nhóm data trả về dạng: { "Hà Nội": ["Cầu Giấy", "Đống Đa"], "Hồ Chí Minh": ["Thủ Đức"] }
     const locations = rows.reduce((acc, curr) => {
         if (!acc[curr.city]) acc[curr.city] = [];
         if (curr.district && !acc[curr.city].includes(curr.district)) {
@@ -262,5 +350,5 @@ const getAvailableLocations = async () => {
 module.exports = { 
     createProperty, getAllProperties, getMyProperties, getPropertyById, 
     updateProperty, deleteProperty, checkAvailability, uploadPropertyImages,
-    updateOccupants, searchProperties, getAvailableLocations // ✅ export thêm
+    updateOccupants, searchProperties, getAvailableLocations
 };

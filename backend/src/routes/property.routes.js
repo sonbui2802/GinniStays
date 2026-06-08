@@ -29,6 +29,6 @@ router.post('/', authorizeRoles('landlord', 'admin'), createProperty);
 router.put('/:id', authorizeRoles('landlord', 'admin'), updateProperty);
 router.delete('/:id', authorizeRoles('landlord', 'admin'), deleteProperty);
 router.patch('/:id/occupants', authorizeRoles('landlord', 'admin'), updateOccupants);
-router.post('/:id/images', authorizeRoles('landlord', 'admin'), upload.array('images', 5), uploadPropertyImages);
+router.post('/:id/images', authorizeRoles('landlord', 'admin'), upload.array('images', 8), uploadPropertyImages);
 
 module.exports = router;
